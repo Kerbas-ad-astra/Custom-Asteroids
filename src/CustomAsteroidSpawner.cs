@@ -1,258 +1,152 @@
-﻿/** Allows manual control of asteroid detections
- * @file CustomAsteroidSpawner.cs
- * @author %Starstrider42
- * @date Created May 14, 2014
- */
-
 using System.Collections.Generic;
-using System.Linq;
 using UnityEngine;
 
-namespace Starstrider42 {
+namespace Starstrider42.CustomAsteroids {
+	/// <summary>
+	/// Manages asteroid spawning behaviour, including the choice of spawner.
+	/// </summary>
+	/// 
+	/// @deprecated Remove this class when implementing 3rd party spawner support for version 2.0.0.
+	[KSPScenario(
+		ScenarioCreationOptions.AddToAllGames,
+		GameScenes.SPACECENTER,
+		GameScenes.TRACKSTATION,
+		GameScenes.FLIGHT)]
+	[System.Obsolete("Spawner should no longer be a ScenarioModule; "
+		+ "this class will be replaced with a dedicated management class in 2.0.0.")]
+	public class CustomAsteroidSpawner : ScenarioModule {
+		/// <summary>Handles game-wide asteroid initialization.</summary>
+		static CustomAsteroidSpawner() {
+			// Ensure each game has different asteroids
+			Random.seed = System.Guid.NewGuid().GetHashCode();
+		}
 
-	namespace CustomAsteroids {
-		/** Class determining when and where asteroids may be spawned
-		 * 
-		 * @todo Make this class sufficiently generic to be replaceable by third-party implementations
-		 */
-		[KSPScenario(ScenarioCreationOptions.AddToAllGames, GameScenes.SPACECENTER, GameScenes.TRACKSTATION, GameScenes.FLIGHT)]
-		public class CustomAsteroidSpawner : ScenarioModule {
-			internal CustomAsteroidSpawner() {
-				canFindAsteroids = GameVariables.Instance.UnlockedSpaceObjectDiscovery(
-					ScenarioUpgradeableFacilities.GetFacilityLevel(
-						SpaceCenterFacility.TrackingStation));
+		/// <summary>Handles asteroid spawning behaviour.</summary>
+		private readonly AbstractSpawner spawner;
 
-				// Yay for memoryless distributions -- we don't care how long it's been since an asteroid was detected
-				resetAsteroidSearches();
+		/// <summary>Unity trick to get start/stop behaviour without a method name.</summary>
+		private IEnumerator<WaitForSeconds> driverRoutine;
+
+		/// <summary>Initializes the scenario prior to loading persistent data. Custom Asteroids options 
+		/// must have already been loaded.</summary>
+		internal CustomAsteroidSpawner() {
+			this.driverRoutine = null;
+
+			switch (AsteroidManager.getOptions().getSpawner()) {
+			case SpawnerType.FixedRate:
+				this.spawner = new FixedRateSpawner();
+				break;
+			case SpawnerType.Stock:
+				this.spawner = new StockalikeSpawner();
+				break;
+			default:
+				throw new System.InvalidOperationException("Unknown spawner type: "
+					+ AsteroidManager.getOptions().getSpawner());
 			}
+		}
 
-			/** Called on the frame when a script is enabled just before any of the Update methods is called the first time.
-			 * 
-			 * @see[Unity Documentation] (http://docs.unity3d.com/Documentation/ScriptReference/MonoBehaviour.Start.html)
-			 * 
-			 * @todo What exceptions are thrown by StartCoroutine?
-			 */
-			public void Start() {
-				StartCoroutine("editStockSpawner");
-			}
+		/// <summary>
+		/// Called on the frame when a script is first loaded, before any are enabled.
+		/// </summary>
+		/// 
+		/// @see[Unity Documentation](http://docs.unity3d.com/Documentation/ScriptReference/MonoBehaviour.Awake.html)
+		public override sealed void OnAwake() {
+			base.OnAwake();
 
-			/** This function is called when the object will be destroyed.
-			 * 
-			 * @see [Unity Documentation] (http://docs.unity3d.com/Documentation/ScriptReference/MonoBehaviour.OnDestroy.html)
-			 * 
-			 * @todo What exceptions are thrown by StopCoroutine?
-			 */
-			public void OnDestroy() {
-				StopCoroutine("editStockSpawner");
-			}
-
-			/** Modifies the stock spawner to match Custom Asteroids settings
-			 * 
-			 * @return Controls the delay before execution resumes
-			 * 
-			 * @see [Unity documentation](http://docs.unity3d.com/Documentation/ScriptReference/MonoBehaviour.StartCoroutine.html)
-			 * 
-			 * @post Asteroid lifetimes match plugin settings
-			 * @post If the plugin settings allow a custom spawner, the stock spawner is set to never 
-			 * 		create asteroids spontaneously
-			 */
-			internal System.Collections.IEnumerator editStockSpawner() {
-				ScenarioDiscoverableObjects spawner = null;
-				do {
-					// Testing shows that loop condition is met fast enough that return 0 doesn't hurt performance
-					yield return 0;
-					// The spawner may be destroyed and re-created before the spawnInterval condition is met... 
-					// 	Safer to do the lookup every time
-					spawner = CustomAsteroidSpawner.getStockSpawner();
-					// Sometimes old scenario persists to when custom addons are reloaded...
-					// Check for default value to make sure it's the new one
-				} while (spawner == null || spawner.spawnGroupMaxLimit != 8);
-
+			// Stock spawner only needs to be unloaded when first loading the game
+			// It will stay unloaded through future scene changes
+			if (HighLogic.CurrentGame.RemoveProtoScenarioModule(typeof(ScenarioDiscoverableObjects))) {
+				// RemoveProtoScenarioModule doesn't remove the actual Scenario
+				foreach (ScenarioDiscoverableObjects scen in 
+					Resources.FindObjectsOfTypeAll(typeof(ScenarioDiscoverableObjects))) {
+					scen.StopAllCoroutines();
+					Destroy(scen);
+				}
+				Debug.Log("[CustomAsteroids]: stock spawner has been shut down.");
+			} else {
 				#if DEBUG
-				Debug.Log("CustomAsteroids: editing stock spawner...");
+				Debug.Log("[CustomAsteroids]: stock spawner not found, doing nothing.");
 				#endif
-
-				spawner.minUntrackedLifetime = AsteroidManager.getOptions().getUntrackedTimes().First;
-				spawner.maxUntrackedLifetime = AsteroidManager.getOptions().getUntrackedTimes().Second;
-
-				if (AsteroidManager.getOptions().getCustomSpawner()) {
-					// Thou Shalt Not adjust spawnInterval -- it's needed to clean up old asteroids
-					spawner.spawnOddsAgainst   = 10000;
-					spawner.spawnGroupMinLimit = 0;
-					spawner.spawnGroupMaxLimit = 0;
-					#if DEBUG
-					Debug.Log("CustomAsteroids: stock spawner disabled");
-					Debug.Log("CustomAsteroids: ScenarioDiscoverableObjects.spawnGroupMinLimit = " + spawner.spawnGroupMinLimit);
-					Debug.Log("CustomAsteroids: ScenarioDiscoverableObjects.spawnGroupMaxLimit = " + spawner.spawnGroupMaxLimit);
-					Debug.Log("CustomAsteroids: ScenarioDiscoverableObjects.sizeCurve = " + spawner.sizeCurve.ToString());
-					Debug.Log("CustomAsteroids: ScenarioDiscoverableObjects.spawnOddsAgainst = " + spawner.spawnOddsAgainst);
-					Debug.Log("CustomAsteroids: ScenarioDiscoverableObjects.spawnInterval = " + spawner.spawnInterval);
-					Debug.Log("CustomAsteroids: ScenarioDiscoverableObjects.maxUntrackedLifetime = " + spawner.maxUntrackedLifetime);
-					Debug.Log("CustomAsteroids: ScenarioDiscoverableObjects.minUntrackedLifetime = " + spawner.minUntrackedLifetime);
-					Debug.Log("CustomAsteroids: ScenarioDiscoverableObjects.spawnGroupMaxLimit = " + spawner.spawnGroupMaxLimit);
-					Debug.Log("CustomAsteroids: ScenarioDiscoverableObjects.spawnGroupMinLimit = " + spawner.spawnGroupMinLimit);
-					#endif
-				}
 			}
+		}
 
-			/** Update is called every frame, if the MonoBehaviour is enabled.
-			 * 
-			 * @see [Unity Documentation] (http://docs.unity3d.com/Documentation/ScriptReference/MonoBehaviour.Update.html)
-			 * 
-			 * Tests whether it's time to create an asteroid
-			 * 
-			 * @exceptsafe Does not throw exceptions
-			 */
-			public void Update() {
-				if(canFindAsteroids && AsteroidManager.getOptions().getCustomSpawner()) {
-					ScenarioDiscoverableObjects stockSpawner = getStockSpawner();
-					if (stockSpawner == null) {
-						#if DEBUG
-						Debug.Log("Could not find ScenarioDiscoverableObjects");
-						#endif
-						return;
-					}
+		/// <summary>
+		/// Called on the frame when a script is enabled just before any of the Update methods is called the first time.
+		/// </summary>
+		/// 
+		/// @see[Unity Documentation](http://docs.unity3d.com/Documentation/ScriptReference/MonoBehaviour.Start.html)
+		internal void Start() {
+			Debug.Log("[CustomAsteroids]: Booting asteroid driver...");
+			driverRoutine = driver();
+			StartCoroutine(driverRoutine);
+		}
 
-					if (Planetarium.GetUniversalTime() > nextAsteroid) {
-						// Stock spawner shuts down at high time warps... don't rely on it!
-						forceDespawnCheck();
-
-						// More than one asteroid per tick is unlikely even at 100,000×
-						while (Planetarium.GetUniversalTime() > nextAsteroid) {
-							Debug.Log("CustomAsteroids: asteroid discovered at UT " + nextAsteroid);
-							stockSpawner.SpawnAsteroid();
-
-							nextAsteroid += waitForAsteroid();
-						}
-					}
-				}
+		/// <summary>
+		/// This function is called when the object will be destroyed.
+		/// </summary>
+		/// 
+		/// @see [Unity Documentation](http://docs.unity3d.com/Documentation/ScriptReference/MonoBehaviour.OnDestroy.html)
+		internal void OnDestroy() {
+			if (driverRoutine != null) {
+				Debug.Log("[CustomAsteroids]: Shutting down asteroid driver...");
+				StopCoroutine(driverRoutine);
 			}
+		}
 
-			/**
-			 * Removes any untracked asteroids that have expired. Does not affect actively tracked asteroids or ordinary vessels.
-			 */
-			private static void forceDespawnCheck() {
-				ScenarioDiscoverableObjects stockSpawner = getStockSpawner();
-
-				if (FlightGlobals.Vessels != null) {
-					// Not sure if C# lists support concurrent modification; play it safe
-					List<Vessel> toDelete = new List<Vessel>();
-
-					foreach (Vessel v in FlightGlobals.Vessels) {
-						DiscoveryInfo trackState = v.DiscoveryInfo;
-						// This test will fail if and only if v is an unvisited, untracked asteroid
-						// It does not matter whether or not it was tracked in the past
-						if (trackState != null && !trackState.HaveKnowledgeAbout(DiscoveryLevels.StateVectors)) {
-							if (Planetarium.GetUniversalTime() > trackState.fadeUT) {
-								toDelete.Add(v);
-							}
-						}
-					}
-
-					foreach (Vessel oldAsteroid in toDelete) {
-						Debug.Log("CustomAsteroids: manually removing asteroid " + oldAsteroid.GetName());
-						oldAsteroid.Die();
-					}
-				}
-			}
-
-			/** Called when the module is either constructed or loaded as part of a save game
-			 * 
-			 * @param[in] node The ConfigNode representing this ScenarioModule
-			 * 
-			 * @pre @p node is assumed to have the following format:
-			 * @code{.cfg}
-			 * SpawnState
-			 * {
-			 * 	NextAsteroidUT = 12345.6789
-			 * 	Enabled = True
-			 * }
-			 * @endcode
-			 * 
-			 * @post The module is initialized with any settings in @p node
-			 */
-			public override void OnLoad(ConfigNode node)
-			{
-				base.OnLoad(node);
-
+		/// <summary>Controls scheduling of asteroid discovery and loss. Actual asteroid code is 
+		/// delegated to <c>spawner</c>.</summary>
+		private IEnumerator<WaitForSeconds> driver() {
+			Debug.Log("[CustomAsteroids]: Asteroid driver started.");
+			// Loop will be terminated by StopCoroutine
+			while (true) {
+				float waitSeconds = spawner.asteroidCheck();
 				#if DEBUG
-				Debug.Log("CustomAsteroids: full node = " + node);
+				Debug.Log("[CustomAsteroids]: Next check in " + waitSeconds + " s.");
 				#endif
-				ConfigNode thisNode = node.GetNode("SpawnState");
-				if (thisNode != null) {
-					ConfigNode.LoadObjectFromConfig(this, thisNode);
-				}
+				yield return new WaitForSeconds(waitSeconds);
 			}
+		}
 
-			/** Called when the save game including the module is saved
-			 * 
-			 * @param[out] node The ConfigNode representing this ScenarioModule
-			 * 
-			 * @post @p node is initialized with the persistent contents of this object
-			 * @post @p node has the following format:
-			 * @code{.cfg}
-			 * SpawnState
-			 * {
-			 * 	NextAsteroidUT = 12345.6789
-			 * 	Enabled = True
-			 * }
-			 * @endcode
-			 */
-			public override void OnSave(ConfigNode node)
-			{
-				base.OnSave(node);
+		/// <summary>
+		/// Update is called every frame, if the MonoBehaviour is enabled. Does not throw exceptions.
+		/// </summary>
+		/// 
+		/// @see [Unity Documentation](http://docs.unity3d.com/Documentation/ScriptReference/MonoBehaviour.Update.html)
+		/// @deprecated This method is kept public for backward-compatibility, but no longer does anything.
+		[System.Obsolete("Improved spawn code does not work every tick; Update() no longer does anything.")]
+		public void Update() {
+			// This method is obsolete, but can't be removed before 2.0.0
+		}
 
-				ConfigNode allData = new ConfigNode();
-				ConfigNode.CreateConfigFromObject(this, allData);
-				allData.name = "SpawnState";
-				node.AddNode(allData);
+		/// <summary>
+		/// Called when the module is either constructed or loaded as part of a save game. After this method returns, 
+		/// the module will be initialized with any settings in <c>node</c>.
+		/// </summary>
+		/// <param name="node">The ConfigNode representing this ScenarioModule.</param>
+		public override void OnLoad(ConfigNode node) {
+			base.OnLoad(node);
+
+			#if DEBUG
+			Debug.Log("[CustomAsteroids]: full node = " + node);
+			#endif
+			ConfigNode thisNode = node.GetNode("SpawnState");
+			if (thisNode != null) {
+				ConfigNode.LoadObjectFromConfig(this, thisNode);
 			}
+		}
 
-			private void resetAsteroidSearches() {
-				nextAsteroid = Planetarium.GetUniversalTime() + waitForAsteroid();
-			}
+		/// <summary>
+		/// Called when the save game including the module is saved. <c>node</c> is initialized with the persistent contents 
+		/// of this object.
+		/// </summary>
+		/// <param name="node">The ConfigNode representing this ScenarioModule.</param>
+		public override void OnSave(ConfigNode node) {
+			base.OnSave(node);
 
-			/** Returns the time until the next asteroid should be detected
-			 * 
-			 * @return The number of seconds before an asteroid detection, or infinity if asteroids should not spawn.
-			 * 
-			 * @exceptsafe Does not throw exceptions
-			 */
-			private static double waitForAsteroid() {
-				double rate = AsteroidManager.spawnRate();	// asteroids per day
-
-				if (rate > 0.0) {
-					rate /= (24.0 * 3600.0);
-					// Waiting time in a Poisson process follows an exponential distribution
-					return RandomDist.drawExponential(1.0/rate);
-				} else {
-					return double.PositiveInfinity;
-				}
-			}
-
-			/**
-			 * Returns the current instance of the stock spawner, if it exists. 
-			 * Otherwise, returns null.
-			 */
-			private static ScenarioDiscoverableObjects getStockSpawner() {
-				if (HighLogic.CurrentGame != null) {
-					if (HighLogic.CurrentGame.scenarios != null) {
-						ProtoScenarioModule protoSpawner = HighLogic.CurrentGame.scenarios
-							.Find(scenario => scenario.moduleName.Equals(typeof(ScenarioDiscoverableObjects).Name));
-						if (protoSpawner != null) {
-							return (ScenarioDiscoverableObjects)protoSpawner.moduleRef;
-						}
-					}
-				}
-
-				return null;
-			}
-
-			/** The time at which the next asteroid will be placed */
-			private double nextAsteroid;
-
-			/** Tracking station status. */
-			private bool canFindAsteroids;
+			ConfigNode allData = new ConfigNode();
+			ConfigNode.CreateConfigFromObject(this, allData);
+			allData.name = "SpawnState";
+			node.AddNode(allData);
 		}
 	}
 }
