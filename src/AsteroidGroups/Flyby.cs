@@ -16,6 +16,8 @@ namespace Starstrider42.CustomAsteroids {
 		[Persistent] private readonly string targetBody;
 		/// <summary>The rate, in asteroids per Earth day, at which asteroids are discovered.</summary>
 		[Persistent] private readonly double spawnRate;
+		/// <summary>The maximum number of asteroids which can exist at any given time.</summary>
+		[Persistent] private readonly int spawnMax;
 
 		/// <summary>
 		/// The distance by which the asteroid would miss <c>targetBody</c> without gravitational focusing.
@@ -43,6 +45,7 @@ namespace Starstrider42.CustomAsteroids {
 			this.title = "Ast.";
 			this.targetBody = "Kerbin";
 			this.spawnRate = 0.0;
+			this.spawnMax = int.MaxValue;
 
 			this.approach = new ApproachRange(ValueRange.Distribution.Uniform, 
 				ApproachRange.Type.Periapsis, min: 0);
@@ -55,7 +58,7 @@ namespace Starstrider42.CustomAsteroids {
 		}
 
 		public double getSpawnRate() {
-			if (detectable == null || detectable.check()) {
+			if ((detectable == null || detectable.check()) && (AsteroidManager.countAsteroidsInSet(this) < spawnMax)) {
 				return spawnRate;
 			} else {
 				return 0.0;

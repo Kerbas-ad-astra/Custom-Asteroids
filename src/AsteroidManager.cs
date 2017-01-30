@@ -122,5 +122,25 @@ namespace Starstrider42.CustomAsteroids {
 			}
 			return theBody;
 		}
+
+		internal static int countAsteroidsInSet(AsteroidSet group)
+		{
+			int count = 0;
+			string searchBase = group.getAsteroidName();
+
+			foreach (Vessel v in FlightGlobals.Vessels)
+			{
+				if (v.DiscoveryInfo != null) // this is an asteroid
+				{
+					if (v.name.IndexOf(searchBase) >= 0)
+					{
+						count++;
+					}
+				}
+			}
+
+
+			return count;
+		}
 	}
 }
