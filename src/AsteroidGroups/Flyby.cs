@@ -16,6 +16,8 @@ namespace Starstrider42.CustomAsteroids {
 		[Persistent] private readonly string targetBody;
 		/// <summary>The rate, in asteroids per Earth day, at which asteroids are discovered.</summary>
 		[Persistent] private readonly double spawnRate;
+		/// <summary>The maximum number of asteroids which can exist at any given time.</summary>
+		[Persistent] private readonly int spawnMax;
 
 		/// <summary>
 		/// The distance by which the asteroid would miss <c>targetBody</c> without gravitational focusing.

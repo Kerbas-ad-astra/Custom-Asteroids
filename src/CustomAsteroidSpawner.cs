@@ -27,6 +27,10 @@ namespace Starstrider42.CustomAsteroids {
 		/// <summary>Unity trick to get start/stop behaviour without a method name.</summary>
 		private IEnumerator<WaitForSeconds> driverRoutine;
 
+
+
+		
+
 		/// <summary>Initializes the scenario prior to loading persistent data. Custom Asteroids options 
 		/// must have already been loaded.</summary>
 		internal CustomAsteroidSpawner() {

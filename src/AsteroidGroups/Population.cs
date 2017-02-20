@@ -16,6 +16,8 @@ namespace Starstrider42.CustomAsteroids {
 		[Persistent] private readonly string centralBody;
 		/// <summary>The rate, in asteroids per Earth day, at which asteroids are discovered.</summary>
 		[Persistent] private readonly double spawnRate;
+		/// <summary>The maximum number of asteroids which can exist at any given time.</summary>
+		[Persistent] private readonly int spawnMax;
 
 		/// <summary>The size (range) of orbits in this population.</summary>
 		[Persistent] private readonly SizeRange orbitSize;
@@ -50,7 +52,8 @@ namespace Starstrider42.CustomAsteroids {
 			this.name = "invalid";
 			this.title = "Ast.";
 			this.centralBody = "Sun";
-			this.spawnRate = 0.0;			// Safeguard: don't make asteroids until the values are set
+			this.spawnRate = 0.0;           // Safeguard: don't make asteroids until the values are set
+			this.spawnMax = int.MaxValue;
 
 			this.orbitSize = new  SizeRange(ValueRange.Distribution.LogUniform, SizeRange.Type.SemimajorAxis);
 			this.eccentricity = new ValueRange(ValueRange.Distribution.Rayleigh, min: 0.0, max: 1.0);
@@ -191,7 +194,10 @@ namespace Starstrider42.CustomAsteroids {
 
 		public double getSpawnRate() {
 			if (detectable == null || detectable.check()) {
-				return spawnRate;
+				if (CustomAsteroidTracker.countAsteroidsInSet(this) < spawnMax)
+				{
+					return spawnRate;
+				}
 			} else {
 				return 0.0;
 			}
